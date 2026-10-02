@@ -86,7 +86,7 @@ jobs:
           find . -name '*.cmd' -delete
           df -h /home/runner
 
-      - name: Build (debug: KASAN + UBSAN)
+      - name: "Build (debug: KASAN + UBSAN)"
         if: inputs.variant == 'debug' || inputs.variant == 'both'
         run: bash scripts/build-kernel.sh debug
 
