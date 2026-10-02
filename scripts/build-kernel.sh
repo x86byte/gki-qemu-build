@@ -31,6 +31,18 @@ for t in bc flex bison openssl pahole; do
   printf '  %-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
 done
 
+# AOSP's top-level Kconfig ends with
+#     source "$(KCONFIG_EXT_PREFIX)Kconfig.ext"
+# which is a hook for downstream kernel forks to splice in their own Kconfig.
+# kernel/common itself does not ship a Kconfig.ext (404), so a pristine
+# android-mainline checkout cannot even run `make gki_defconfig` without one.
+# An empty file is the intended no-op: KCONFIG_EXT_PREFIX defaults to empty, so
+# this resolves to the stub and nothing extra is sourced.
+if [ ! -e Kconfig.ext ]; then
+  : > Kconfig.ext
+  echo "created empty Kconfig.ext stub (AOSP external-Kconfig hook)"
+fi
+
 if [ "$VARIANT" = "debug" ]; then
   echo "=== configuring: gki_defconfig + KASAN/UBSAN ==="
   make gki_defconfig
