@@ -1,0 +1,7 @@
+# Git on Windows defaults to core.autocrlf=true, which would check the runner
+# scripts out with CRLF and make bash fail with "bad interpreter: /bin/bash^M".
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
