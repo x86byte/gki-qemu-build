@@ -40,8 +40,15 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            lld bc bison flex libssl-dev libelf-dev dwarves python3 cpio
+            lld llvm llvm-18 llvm-18-tools \
+            libdwarf-dev libelf-dev libssl-dev \
+            dwarves bc bison flex python3 cpio pkg-config
+          # LLVM=1 makes the kernel build call llvm-ar / llvm-nm / llvm-objcopy
+          # by bare name, so they have to be on PATH.
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
           ld.lld --version
+          llvm-ar --version | head -1
+          ls /usr/include/dwarf.h
 
       # Shallow single-branch fetch, NOT the +archive tarball. gitiles builds
       # +archive on the fly and the transfer silently truncates (observed: 162 MB
