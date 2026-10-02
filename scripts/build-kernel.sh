@@ -142,7 +142,7 @@ if ! ls /usr/include/dwarf.h >/dev/null 2>&1; then
   grep -E '^CONFIG_GENDWARFKSYMS' .config || echo "  (GENDWARFKSYMS now off)"
 fi
 
-echo "=== building Image + vmlinux (modules skipped to save disk) ==="
+echo "=== building Image + vmlinux ==="
 df -h . | tail -1
 make -j"$(nproc)" Image
 df -h . | tail -1
@@ -151,5 +151,31 @@ cp -v arch/arm64/boot/Image "$OUT/Image"
 echo "=== compressing vmlinux in place (avoids holding two multi-GB copies) ==="
 gzip -9 -f vmlinux
 mv -v vmlinux.gz "$OUT/vmlinux.gz"
+
+# Modules. gki_defconfig sets 124 symbols to =m, and `make Image` never builds
+# them, so without this step the artifact ships with zero .ko files and the
+# whole module surface is simply absent. They are small compared to the kernel
+# proper, and the release variant has the disk headroom, so build them.
+#
+# `modules_install` needs the staging layout (System.map, Module.symvers);
+# `make modules` alone is enough to get the .ko files with symbols.
+if [ "$VARIANT" = "release" ]; then
+  echo "=== building modules ($(grep -c '=m$' .config || true) configured =m) ==="
+  make -j"$(nproc)" modules
+  echo "=== collecting modules into $OUT/modules ==="
+  rm -rf "$OUT/modules"
+  mkdir -p "$OUT/modules"
+  # -C is fine here: a module built as =m has no external module deps in a
+  # GKI build unless CONFIG_MODVERSIONS needs a matching Module.symvers, which
+  # the kernel build has already produced next to vmlinux.
+  find . -name '*.ko' ! -name '*.ko.*' -exec cp --parents {} "$OUT/modules/" \;
+  echo "modules built: $(find "$OUT/modules" -name '*.ko' | wc -l)"
+  # A flat copy too: the tree layout above preserves the build path, but a flat
+  # directory is what you actually insmod from and what depmod wants to hash.
+  mkdir -p "$OUT/modules-flat"
+  find . -name '*.ko' ! -name '*.ko.*' -exec cp {} "$OUT/modules-flat/" \;
+  echo "flat modules: $(find "$OUT/modules-flat" -name '*.ko' | wc -l)"
+fi
+
 ls -la "$OUT"
 echo "=== done: $VARIANT ==="

@@ -135,6 +135,7 @@ jobs:
           path: |
             ${{ env.OUT }}/Image
             ${{ env.OUT }}/vmlinux.gz
+            ${{ env.OUT }}/modules-flat/
           retention-days: 30
           if-no-files-found: error
 
