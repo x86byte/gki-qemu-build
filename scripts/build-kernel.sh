@@ -72,6 +72,17 @@ else
   make gki_defconfig
 fi
 
+# BTF generation is the last step and it is the one that fails on this host:
+# pahole aborts with "Reached the limit of per-CPU variables: 4096" and then
+# "Failed to generate BTF for vmlinux", after the full 40 minute compile.
+# We do not need it: vmlinux already carries DWARF5, which is what lldb and gdb
+# actually consume. BTF matters for *shipping* kernels where you have no
+# vmlinux at all -- for a self-built debug kernel it is strictly redundant.
+echo "=== disabling CONFIG_DEBUG_INFO_BTF (pahole per-CPU limit; DWARF5 is what we debug with) ==="
+scripts/config --file .config -d DEBUG_INFO_BTF
+make olddefconfig
+grep -E '^CONFIG_DEBUG_INFO' .config
+
 echo "=== sanity: symbols the QEMU harness depends on ==="
 # BLK_DEV_INITRD + RD_GZIP are default-y so they may not appear literally; a
 # missing CONFIG_ line for those is fine, anything else is a real problem.
@@ -102,9 +113,8 @@ make -j"$(nproc)" Image
 df -h . | tail -1
 
 cp -v arch/arm64/boot/Image "$OUT/Image"
-cp -v vmlinux "$OUT/vmlinux"
-echo "=== compressing vmlinux (DWARF is huge; lldb reads the .gz fine) ==="
-gzip -9 -f "$OUT/vmlinux"
-rm -f "$OUT/vmlinux"
+echo "=== compressing vmlinux in place (avoids holding two multi-GB copies) ==="
+gzip -9 -f vmlinux
+mv -v vmlinux.gz "$OUT/vmlinux.gz"
 ls -la "$OUT"
 echo "=== done: $VARIANT ==="
