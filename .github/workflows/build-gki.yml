@@ -33,6 +33,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The stock runner image has clang but not always lld/bison/flex/openssl,
+      # and the kernel build needs all four.
+      - name: Install kernel build prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            lld bc bison flex libssl-dev libelf-dev dwarves python3 cpio
+          ld.lld --version
+
       # Fetch kernel/common (android-mainline).
       #
       # NOT git clone / git fetch: on this network both produce an empty repo

@@ -23,8 +23,13 @@ export KBUILD_BUILD_HOST=qemu-re
 
 echo "=== toolchain ==="
 clang --version | head -2
-ld.lld --version
+# Not all runner images put ld.lld on PATH; do not let a missing one kill the
+# build here, the kernel build itself will fail loudly if it truly needs it.
+ld.lld --version 2>/dev/null || ld.lld-18 --version 2>/dev/null || echo "ld.lld not found on PATH (build will need it)"
 make --version | head -1
+for t in bc flex bison openssl pahole; do
+  printf '  %-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
+done
 
 if [ "$VARIANT" = "debug" ]; then
   echo "=== configuring: gki_defconfig + KASAN/UBSAN ==="
