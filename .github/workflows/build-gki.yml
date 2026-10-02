@@ -1,13 +1,13 @@
 name: build-gki
 
 # Builds the Android GKI (android-mainline, arm64) on a stock GitHub runner and
-# uploads Image + vmlinux so the local QEMU/gdbstub harness can debug it.
+# uploads Image + vmlinux.gz so the local QEMU/gdbstub harness can debug it.
 #
 #   release : stock gki_defconfig -- matches what actually ships, for fidelity
-#   debug   : + KASAN/UBSAN/DEBUG_ATOMIC_SLEEP -- for finding the bugs
+#   debug   : + software KASAN / UBSAN / DEBUG_ATOMIC_SLEEP -- for finding bugs
 #
-# The two variants run as separate jobs (not a matrix) on purpose: a full
-# kernel build tree does not fit twice in a runner's free disk.
+# The two variants run as sequential steps in one job on purpose: two full
+# kernel build trees do not fit side by side on a runner's free disk.
 
 on:
   workflow_dispatch:
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # The stock runner image has clang but not always lld/bison/flex/openssl,
-      # and the kernel build needs all four.
+      # and the kernel build needs all of them.
       - name: Install kernel build prerequisites
         run: |
           set -euo pipefail
@@ -43,27 +43,35 @@ jobs:
             lld bc bison flex libssl-dev libelf-dev dwarves python3 cpio
           ld.lld --version
 
-      # Fetch kernel/common (android-mainline).
-      #
-      # NOT git clone / git fetch: on this network both produce an empty repo
-      # after 10+ minutes (kernel/common is a ~1.5 GB history). The gitiles
-      # `+archive` tarball is the path that reliably works, and `git ls-remote`
-      # still gives us the exact commit id for the record.
-      - name: Fetch kernel/common (android-mainline tarball)
+      # Shallow single-branch fetch, NOT the +archive tarball. gitiles builds
+      # +archive on the fly and the transfer silently truncates (observed: 162 MB
+      # of a 270 MB archive), which then blows up much later inside tar with a
+      # misleading "unexpected end of file". A shallow fetch is additionally
+      # verified by git's own pack checksum, so a bad transfer is a hard error
+      # at the point of failure instead of a surprise later.
+      - name: Fetch kernel/common (android-mainline, shallow)
         run: |
           set -euo pipefail
-          KSHA=$(git ls-remote https://android.googlesource.com/kernel/common \
-                 refs/heads/android-mainline | cut -f1)
-          echo "android-mainline = $KSHA" | tee "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
           mkdir -p "$KSRC"
-          curl -fSL --retry 3 --retry-delay 5 \
-            -o /tmp/kernel.tar.gz \
-            "https://android.googlesource.com/kernel/common/+archive/refs/heads/android-mainline.tar.gz"
-          ls -la /tmp/kernel.tar.gz
-          tar xzf /tmp/kernel.tar.gz -C "$KSRC"
-          rm -f /tmp/kernel.tar.gz
-          test -f "$KSRC/Makefile"
-          make -s -C "$KSRC" kernelversion
+          cd "$KSRC"
+          git init -q .
+          git remote add origin https://android.googlesource.com/kernel/common
+          git config core.longpaths true
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if git fetch --depth 1 --no-tags origin refs/heads/android-mainline; then
+              ok=1
+              break
+            fi
+            echo "fetch attempt $attempt failed, retrying"
+            sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "could not fetch kernel/common"; exit 1; }
+          git checkout -q FETCH_HEAD
+          SHA="$(git rev-parse HEAD)"
+          echo "android-mainline = $SHA" | tee -a "$GITHUB_OUTPUT" -a "$GITHUB_STEP_SUMMARY"
+          echo "files: $(git ls-files | wc -l)"
+          test -f Makefile
 
       - name: Report disk before build
         run: df -h /home/runner
@@ -91,7 +99,6 @@ jobs:
           set -euo pipefail
           cd "$KSRC"
           rm -f "$OUT"/Image "$OUT"/vmlinux.gz
-          # keep .config, drop every object file and command file
           find . -name '*.o' -delete
           find . -name '*.cmd' -delete
           df -h /home/runner
