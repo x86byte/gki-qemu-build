@@ -60,7 +60,7 @@ jobs:
 
       - name: Build (release)
         if: inputs.variant == 'release' || inputs.variant == 'both' || inputs.variant == ''
-        run: ./scripts/build-kernel.sh release
+        run: bash scripts/build-kernel.sh release
 
       - name: Upload release artifacts
         if: inputs.variant == 'release' || inputs.variant == 'both' || inputs.variant == ''
@@ -88,7 +88,7 @@ jobs:
 
       - name: Build (debug: KASAN + UBSAN)
         if: inputs.variant == 'debug' || inputs.variant == 'both'
-        run: ./scripts/build-kernel.sh debug
+        run: bash scripts/build-kernel.sh debug
 
       - name: Upload debug artifacts
         if: inputs.variant == 'debug' || inputs.variant == 'both'
