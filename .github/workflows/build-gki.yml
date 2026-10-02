@@ -29,6 +29,10 @@ jobs:
     env:
       KSRC: /home/runner/kernel/common
       OUT: /home/runner/kernel/out
+      # scripts/rust_is_available.sh reads these from the environment; Kbuild
+      # also uses them to find the compiler and the bindings generator.
+      RUSTC: rustc
+      BINDGEN: bindgen
 
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +62,33 @@ jobs:
             sudo ln -s "$DW" /usr/include/dwarf.h
           fi
           ls -l /usr/include/dwarf.h || echo "NOTE: no dwarf.h; gendwarfksyms will be disabled"
+
+      # The GKI's binder is written in Rust (drivers/android/binder/*.rs) and
+      # gki_defconfig selects CONFIG_ANDROID_BINDER_IPC_RUST. That symbol
+      # `depends on RUST`, and RUST is gated on RUST_IS_AVAILABLE, a
+      # def_bool $(success, scripts/rust_is_available.sh) probe. Without a Rust
+      # toolchain the probe fails, olddefconfig drops RUST, the Rust binder
+      # silently disappears, and you end up with a kernel that has no binder
+      # driver at all -- which is exactly what happened to the first build.
+      #
+      # scripts/min-tool-version.sh requires rustc >= 1.85.0 and
+      # bindgen >= 0.71.1. RUSTC_LLVM_COMPATIBLE wants the Rust and clang LLVM
+      # major versions to agree, so the Rust toolchain below is the one that
+      # ships its own matching rustc.
+      - name: Install Rust toolchain (required for the Rust binder)
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain 1.85.0 --profile minimal \
+                       --component rust-src,clippy,rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustc --version
+          cargo --version
+          # bindgen is a cargo binary; the kernel invokes it as $BINDGEN.
+          cargo install bindgen-cli --version 0.71.1 --locked
+          bindgen --version
+          rustup component add rust-src
+          rustc --print sysroot
 
       # Shallow single-branch fetch, NOT the +archive tarball. gitiles builds
       # +archive on the fly and the transfer silently truncates (observed: 162 MB

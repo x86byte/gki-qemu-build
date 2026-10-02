@@ -27,9 +27,25 @@ clang --version | head -2
 # build here, the kernel build itself will fail loudly if it truly needs it.
 ld.lld --version 2>/dev/null || ld.lld-18 --version 2>/dev/null || echo "ld.lld not found on PATH (build will need it)"
 make --version | head -1
-for t in bc flex bison openssl pahole; do
+for t in bc flex bison openssl pahole rustc cargo bindgen; do
   printf '  %-10s %s\n' "$t" "$(command -v $t || echo MISSING)"
 done
+
+# The GKI ships the *Rust* binder, and gki_defconfig selects it. RUST however
+# hangs off `RUST_IS_AVAILABLE`, a def_bool $(success, scripts/rust_is_available.sh)
+# probe. On a runner with no Rust toolchain that probe fails, olddefconfig then
+# drops CONFIG_RUST, and CONFIG_ANDROID_BINDER_IPC_RUST (which `depends on RUST`)
+# silently disappears with it -- you get a kernel with NO binder driver at all
+# and no warning anywhere. This is checked explicitly below so it can never
+# happen silently again.
+echo "=== rust availability probe ==="
+if make rustavailable; then
+  echo "  rust toolchain detected by the kernel build"
+else
+  echo "  WARNING: kernel reports no Rust toolchain; CONFIG_RUST and therefore"
+  echo "           CONFIG_ANDROID_BINDER_IPC_RUST will be dropped by olddefconfig."
+  echo "           The resulting kernel has no binder driver."
+fi
 
 # AOSP's top-level Kconfig ends with
 #     source "$(KCONFIG_EXT_PREFIX)Kconfig.ext"
@@ -67,6 +83,14 @@ if [ "$VARIANT" = "debug" ]; then
     -e DEBUG_INFO_DWARF5 \
     -d DEBUG_INFO_NONE
   make olddefconfig
+  # KASAN adds a large redzone to every stack frame, which pushes several
+  # GKI ioctl handlers over the 2048-byte -Wframe-larger-than limit that the
+  # GKI sets as -Werror. It is a warning about code we are not changing, and it
+  # only fires in this instrumented variant, so downgrade it to a warning.
+  # Observed: fs/exfat/file.c:607 exfat_ioctl, stack frame size (2336).
+  scripts/config --file .config -d WERROR
+  make olddefconfig
+  grep -E '^(# )?CONFIG_WERROR' .config || echo "  (WERROR not written out)"
 else
   echo "=== configuring: stock gki_defconfig ==="
   make gki_defconfig
@@ -95,6 +119,17 @@ echo "  VA_BITS: $(grep -E '^CONFIG_ARM64_VA_BITS=' .config)"
 echo "  KASAN:   $(grep -E '^CONFIG_KASAN=' .config || echo 'not set (release)')"
 
 mkdir -p "$OUT"
+
+# Hard assert on the things a silently-dropped dependency can take with it.
+# Getting burned by a missing binder already cost us a full build cycle.
+echo "=== assert: binder must be present ==="
+if ! grep -qE '^CONFIG_ANDROID_BINDER_IPC_RUST=y' .config; then
+  echo "FATAL: CONFIG_ANDROID_BINDER_IPC_RUST is not set in .config."
+  echo "       CONFIG_RUST is: $(grep -E '^(# )?CONFIG_RUST=' .config || echo 'absent')"
+  echo "       -> this kernel has no binder driver; it cannot be used for binder work."
+  exit 1
+fi
+echo "  CONFIG_ANDROID_BINDER_IPC_RUST=y  (Rust binder built in)"
 
 # gendwarfksyms needs <dwarf.h>, which Debian/Ubuntu install under a versioned
 # directory. If the workflow could not put it on the include path, drop the
