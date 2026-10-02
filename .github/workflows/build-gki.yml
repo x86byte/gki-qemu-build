@@ -48,7 +48,16 @@ jobs:
           echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
           ld.lld --version
           llvm-ar --version | head -1
-          ls /usr/include/dwarf.h
+          # scripts/gendwarfksyms includes <dwarf.h>, but Debian/Ubuntu install
+          # it under a versioned directory, not /usr/include. Symlink it into
+          # place; if the package really did not provide it, the build script
+          # drops GENDWARFKSYMS and we still get a bootable Image.
+          DW="$(find /usr/include -name dwarf.h 2>/dev/null | head -1 || true)"
+          echo "dwarf.h found at: ${DW:-<none>}"
+          if [ -n "$DW" ] && [ ! -f /usr/include/dwarf.h ]; then
+            sudo ln -s "$DW" /usr/include/dwarf.h
+          fi
+          ls -l /usr/include/dwarf.h || echo "NOTE: no dwarf.h; gendwarfksyms will be disabled"
 
       # Shallow single-branch fetch, NOT the +archive tarball. gitiles builds
       # +archive on the fly and the transfer silently truncates (observed: 162 MB

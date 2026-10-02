@@ -84,6 +84,18 @@ echo "  VA_BITS: $(grep -E '^CONFIG_ARM64_VA_BITS=' .config)"
 echo "  KASAN:   $(grep -E '^CONFIG_KASAN=' .config || echo 'not set (release)')"
 
 mkdir -p "$OUT"
+
+# gendwarfksyms needs <dwarf.h>, which Debian/Ubuntu install under a versioned
+# directory. If the workflow could not put it on the include path, drop the
+# feature rather than the build: we only need a bootable Image and vmlinux, not
+# the .ksyms sidecar.
+if ! ls /usr/include/dwarf.h >/dev/null 2>&1; then
+  echo "=== no dwarf.h on the include path, disabling GENDWARFKSYMS ==="
+  scripts/config --file .config -d GENDWARFKSYMS
+  make olddefconfig
+  grep -E '^CONFIG_GENDWARFKSYMS' .config || echo "  (GENDWARFKSYMS now off)"
+fi
+
 echo "=== building Image + vmlinux (modules skipped to save disk) ==="
 df -h . | tail -1
 make -j"$(nproc)" Image
